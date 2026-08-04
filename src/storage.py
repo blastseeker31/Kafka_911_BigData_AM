@@ -43,7 +43,8 @@ class EmergencyStorage:
     def summary(self) -> dict[str, int]:
         result = next(self.metrics.aggregate([{"$group": {"_id": None, "new": {"$sum": {"$cond": [{"$eq": ["$active_calls", "$active_calls"]}, 0, 0]}}, "critical": {"$sum": "$critical_calls"}, "units": {"$sum": "$available_units"}, "processed": {"$sum": "$processed_calls"}}}]), {})
         # La cola nueva se calcula directamente para que los cambios de estado sean siempre consistentes.
-        return {"new": self.emergencies.count_documents({"status": "Nuevo"}), "active": self.emergencies.count_documents({"status": {"$ne": "Cerrado"}}), "critical": self.emergencies.count_documents({"priority": {"$gte": 4}, "status": {"$ne": "Cerrado"}}), "units": int(result.get("units", 0)), "occupied": self.emergencies.count_documents({"status": {"$in": ["Despachado", "En atención"]}}), "processed": int(result.get("processed", 0))}
+        occupied = sum(len(item.get("assigned_units", [])) for item in self.emergencies.find({"status": {"$in": ["Despachado", "En atención"]}}, {"assigned_units": 1, "_id": 0}))
+        return {"new": self.emergencies.count_documents({"status": "Nuevo"}), "active": self.emergencies.count_documents({"status": {"$ne": "Cerrado"}}), "critical": self.emergencies.count_documents({"priority": {"$gte": 4}, "status": {"$ne": "Cerrado"}}), "units": int(result.get("units", 0)), "occupied": occupied, "processed": int(result.get("processed", 0))}
 
     def city_rows(self) -> list[dict[str, Any]]:
         rows = []

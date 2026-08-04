@@ -1,18 +1,18 @@
-from src.event_factory import DISTRICTS, create_batch, create_event
+from src.event_factory import CITIES, create_batch, create_event
 
 
-def test_create_event_has_required_fields():
-    event = create_event(district_id="D01", emergency_type="Incendio", priority=5)
-    assert event["district_id"] == "D01"
+def test_create_event_has_operational_fields():
+    event = create_event(city_id="TGU", emergency_type="Incendio", priority=5, people_at_risk=4)
+    assert event["city_id"] == "TGU"
+    assert event["city_name"] == "Tegucigalpa"
     assert event["priority"] == 5
-    assert event["report_number"].startswith("EM-")
-    assert {"location", "occurred_at", "status"}.issubset(event)
+    assert event["people_at_risk"] == 4
+    assert {"neighborhood", "location", "description", "occurred_at", "status"}.issubset(event)
 
 
-def test_batch_size_and_distribution_domain():
+def test_batch_uses_only_honduran_cities():
     events = create_batch(250, imperfection_rate=0)
-    assert len(events) == 250
-    assert {event["district_id"] for event in events}.issubset({item["id"] for item in DISTRICTS})
+    assert {event["city_id"] for event in events}.issubset({item["id"] for item in CITIES})
 
 
 def test_batch_can_include_controlled_imperfections():

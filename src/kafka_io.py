@@ -39,7 +39,7 @@ class EmergencyProducer:
                 try:
                     self.producer.produce(
                         settings.kafka_topic,
-                        key=str(event.get("district_id", "unknown")),
+                        key=str(event.get("city_id", "unknown")),
                         value=json.dumps(event, ensure_ascii=False).encode("utf-8"),
                         callback=delivery_report,
                     )
@@ -58,4 +58,3 @@ class EmergencyProducer:
             "elapsed_seconds": round(elapsed, 4),
             "events_per_second": round(counters["delivered"] / elapsed, 2),
         }
-
