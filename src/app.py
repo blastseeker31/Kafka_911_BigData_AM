@@ -196,6 +196,15 @@ def massive(db: EmergencyStorage) -> None:
             with st.expander("Ver detalles técnicos"):
                 st.json(result)
         except Exception as exc: st.error(str(exc))
+    st.divider()
+    st.markdown("#### Preparar una nueva demostración")
+    st.caption("Elimina los reportes, métricas y dead letters generados en MongoDB. No modifica Kafka ni la configuración del sistema.")
+    confirm_reset = st.checkbox("Confirmo que quiero borrar los datos de prueba")
+    if st.button("Eliminar datos de prueba", disabled=not confirm_reset):
+        db.reset_demo_data()
+        st.success("Datos de prueba eliminados. La central está lista para un nuevo runthrough.")
+        time.sleep(.5)
+        st.rerun()
 
 def overview(db: EmergencyStorage) -> None:
     st.markdown("<p class='eyebrow'>Situación nacional</p><h2 class='section-title'>Resumen por ciudad</h2><p class='muted'>Compara demanda, disponibilidad y presión operativa de las tres ciudades atendidas.</p>", unsafe_allow_html=True)
