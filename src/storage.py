@@ -29,6 +29,20 @@ class EmergencyStorage:
 
     def ping(self) -> bool: return bool(self.client.admin.command("ping").get("ok"))
 
+    @staticmethod
+    def _normalize_event(event: dict[str, Any]) -> dict[str, Any]:
+        """Makes reports from the first MVP safe to display during migration."""
+        if "city_name" not in event:
+            event["city_id"] = "TGU"
+            event["city_name"] = "Tegucigalpa"
+            event["neighborhood"] = event.get("location", "Sin referencia")
+            event["people_at_risk"] = 1
+        if "assigned_units" not in event:
+            event["assigned_units"] = [event["assigned_unit"]] if event.get("assigned_unit") else []
+        status_map = {"Recibida": "Nuevo", "Unidad asignada": "Despachado", "En camino": "En atención", "Resuelta": "Cerrado"}
+        event["status"] = status_map.get(event.get("status"), event.get("status", "Nuevo"))
+        return event
+
     def save_valid_event(self, event: dict[str, Any]) -> bool:
         document = dict(event); document["processed_at"] = datetime.now(timezone.utc)
         try: self.emergencies.insert_one(document)
@@ -62,9 +76,12 @@ class EmergencyStorage:
         if status != "Todos": query["status"] = status
         sort_field, direction = (("priority", DESCENDING) if sort == "Prioridad" else ("occurred_at", DESCENDING))
         total = self.emergencies.count_documents(query); skip = max(page - 1, 0) * page_size
-        return list(self.emergencies.find(query, {"_id": 0}).sort(sort_field, direction).skip(skip).limit(page_size)), total
+        events = list(self.emergencies.find(query, {"_id": 0}).sort(sort_field, direction).skip(skip).limit(page_size))
+        return [self._normalize_event(event) for event in events], total
 
-    def get_event(self, report_number: str) -> dict[str, Any] | None: return self.emergencies.find_one({"report_number": report_number}, {"_id": 0})
+    def get_event(self, report_number: str) -> dict[str, Any] | None:
+        event = self.emergencies.find_one({"report_number": report_number}, {"_id": 0})
+        return self._normalize_event(event) if event else None
 
     def update_event(self, report_number: str, status: str, assigned_units: list[str], observation: str) -> bool:
         if status not in STATUSES: return False

@@ -13,6 +13,10 @@ st.set_page_config(page_title="Central 911 Honduras", page_icon="🚨", layout="
 st.markdown("""
 <style>
 .stApp { background:#f6f8fb; color:#172033; } [data-testid="stHeader"] { background:#f6f8fb; }
+.stApp p, .stApp label, .stApp span, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp [data-testid="stMarkdownContainer"] { color:#172033 !important; }
+[data-baseweb="select"] *, [data-baseweb="input"] *, textarea, input { color:#172033 !important; background:#fff !important; }
+[data-testid="stSidebar"] * { color:#172033 !important; } .stButton button { color:#172033 !important; }
+[data-testid="stFormSubmitButton"] button[kind="primary"], .stButton button[kind="primary"] { background:#c92f3d !important; color:#fff !important; border-color:#c92f3d !important; }
 [data-testid="stSidebar"] { background:#fff; border-right:1px solid #e5eaf0; }
 [data-testid="stMetric"] { background:#fff; border:1px solid #e4e9ef; padding:14px 16px; border-radius:10px; }
 div[data-testid="stForm"] { background:#fff; border:1px solid #e4e9ef; padding:18px; border-radius:10px; }
@@ -212,4 +216,3 @@ def main() -> None:
     else: massive(db)
 
 if __name__ == "__main__": main()
-
