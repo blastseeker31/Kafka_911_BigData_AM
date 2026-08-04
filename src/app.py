@@ -13,10 +13,13 @@ st.set_page_config(page_title="Central 911 Honduras", page_icon="🚨", layout="
 st.markdown("""
 <style>
 .stApp { background:#f6f8fb; color:#172033; } [data-testid="stHeader"] { background:#f6f8fb; }
-.stApp p, .stApp label, .stApp span, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp [data-testid="stMarkdownContainer"] { color:#172033 !important; }
+.stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp [data-testid="stMarkdownContainer"] { color:#172033 !important; }
 [data-baseweb="select"] *, [data-baseweb="input"] *, textarea, input { color:#172033 !important; background:#fff !important; }
-[data-testid="stSidebar"] * { color:#172033 !important; } .stButton button { color:#172033 !important; }
+[data-testid="stSidebar"] { color:#172033 !important; } [data-testid="stSidebar"] p, [data-testid="stSidebar"] label { color:#172033 !important; }
+.stButton button, [data-testid="stFormSubmitButton"] button { color:#172033 !important; background:#fff !important; border:1px solid #b8c2cf !important; }
 [data-testid="stFormSubmitButton"] button[kind="primary"], .stButton button[kind="primary"] { background:#c92f3d !important; color:#fff !important; border-color:#c92f3d !important; }
+[data-testid="stFormSubmitButton"] button[kind="primary"] *, .stButton button[kind="primary"] * { color:#fff !important; }
+[data-testid="stDataFrame"] { border:1px solid #d8e0e8; border-radius:8px; background:#fff; }
 [data-testid="stSidebar"] { background:#fff; border-right:1px solid #e5eaf0; }
 [data-testid="stMetric"] { background:#fff; border:1px solid #e4e9ef; padding:14px 16px; border-radius:10px; }
 div[data-testid="stForm"] { background:#fff; border:1px solid #e4e9ef; padding:18px; border-radius:10px; }
