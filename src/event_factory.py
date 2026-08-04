@@ -50,8 +50,7 @@ def _priority_for(emergency_type: str) -> int:
     return random.choices([1, 2, 3, 4, 5], weights=weights, k=1)[0]
 
 
-def create_event(city_id: str | None = None, emergency_type: str | None = None, priority: int | None = None, location: str | None = None, description: str | None = None, people_at_risk: int | None = None, neighborhood: str | None = None, scenario: str = "Operación normal", **legacy: Any) -> dict[str, Any]:
-    city_id = city_id or legacy.get("district_id")
+def create_event(city_id: str | None = None, emergency_type: str | None = None, priority: int | None = None, location: str | None = None, description: str | None = None, people_at_risk: int | None = None, neighborhood: str | None = None, scenario: str = "Operación normal") -> dict[str, Any]:
     city = next((item for item in CITIES if item["id"] == city_id), None)
     config = SCENARIOS.get(scenario, SCENARIOS["Operación normal"])
     city = city or random.choices(CITIES, weights=config["city_weights"], k=1)[0]
@@ -88,7 +87,3 @@ def create_batch(count: int, imperfection_rate: float = 0.02, scenario: str = "O
             event.pop(random.choice(["city_id", "emergency_type", "occurred_at"])); event["simulated_issue"] = "malformed"
         events.append(event)
     return events
-
-
-# Compatibilidad para consumidores externos antiguos: no son distritos, son ciudades.
-DISTRICTS = CITIES
