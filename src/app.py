@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 
 from src.config import settings
@@ -27,6 +28,8 @@ div[data-testid="stForm"] { background:#fff; border:1px solid #e4e9ef; padding:1
 .priority-5 { color:#b42318; font-weight:800; } .priority-4 { color:#b54708; font-weight:800; }
 .login-wrap { max-width:440px; margin:7vh auto 0; } .login-mark { color:#d12f3d; font-size:2rem; font-weight:900; }
 .muted { color:#637083; } .section-title { margin-top:6px; margin-bottom:4px; }
+.nav-caption { color:#637083; font-size:.78rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; margin:4px 0 0; }
+.queue-count { color:#637083; font-size:.85rem; margin:0 0 8px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -102,7 +105,7 @@ def emergency_form() -> None:
         except Exception as exc: st.error(f"No se pudo registrar la emergencia: {exc}")
 
 def queue(db: EmergencyStorage) -> None:
-    st.markdown("<p class='eyebrow'>Despacho</p><h2 class='section-title'>Cola de reportes</h2><p class='muted'>Prioriza y abre cualquier reporte, aunque la cola tenga miles de registros.</p>", unsafe_allow_html=True)
+    st.markdown("<p class='eyebrow'>Despacho</p><h2 class='section-title'>Cola de reportes</h2><p class='muted'>Encuentra el siguiente reporte que necesita acción y abre su despacho en un clic.</p>", unsafe_allow_html=True)
     f1, f2, f3, f4 = st.columns([2, 1, 1, 1])
     search = f1.text_input("Buscar", placeholder="Número, ubicación o descripción")
     city = f2.selectbox("Ciudad", ["Todas"] + [c["name"] for c in CITIES])
@@ -116,24 +119,25 @@ def queue(db: EmergencyStorage) -> None:
     st.session_state.queue_page = min(st.session_state.queue_page, total_pages)
     events, total = db.query_events(st.session_state.queue_page, page_size, search, city, typ, priority, status, sort)
     if events:
-        options = [f"{e['report_number']} · P{e['priority']} · {e['city_name']} · {e['emergency_type']}" for e in events]
-        selected = st.radio("Selecciona un reporte para atender", options, label_visibility="collapsed")
-        if st.button("Abrir expediente y despachar", type="primary"):
-            st.session_state.selected_report = selected.split(" · ")[0]
+        st.markdown(f"<p class='queue-count'>{total:,} reportes encontrados · página {st.session_state.queue_page} de {total_pages}</p>", unsafe_allow_html=True)
+        options = {f"{e['report_number']} · P{e['priority']} · {e['city_name']} · {e['emergency_type']}": e["report_number"] for e in events}
+        selected = st.selectbox("Reporte seleccionado", list(options), label_visibility="collapsed")
+        if st.button("Abrir expediente y despachar", type="primary", use_container_width=True):
+            st.session_state.selected_report = options[selected]
             st.session_state.page = "detail"
             st.rerun()
         frame = pd.DataFrame([{"Reporte": e["report_number"], "Ciudad": e["city_name"], "Colonia / referencia": e["neighborhood"], "Tipo": e["emergency_type"], "Prioridad": f"P{e['priority']}", "Riesgo": e["people_at_risk"], "Estado": e["status"]} for e in events])
         st.dataframe(frame, use_container_width=True, hide_index=True)
-    else: st.info("No hay reportes con estos filtros.")
-    a, b, c = st.columns([1, 1, 4])
-    if a.button("‹ Anterior", disabled=st.session_state.queue_page <= 1):
-        st.session_state.queue_page -= 1
-        st.rerun()
-    b.button(f"Página {st.session_state.queue_page} de {total_pages}", disabled=True)
-    if c.button("Siguiente ›", disabled=st.session_state.queue_page >= total_pages):
+    else:
+        st.info("No hay reportes con estos filtros. Prueba quitar un filtro o registra una nueva emergencia.")
+    a, b, c = st.columns([1, 1, 1])
+    if c.button("Siguiente ›", disabled=st.session_state.queue_page >= total_pages, use_container_width=True):
         st.session_state.queue_page += 1
         st.rerun()
-    st.caption(f"{total:,} reportes encontrados · mostrando {len(events)}")
+    if a.button("‹ Anterior", disabled=st.session_state.queue_page <= 1, use_container_width=True):
+        st.session_state.queue_page -= 1
+        st.rerun()
+    b.button(f"Página {st.session_state.queue_page} de {total_pages}", disabled=True, use_container_width=True)
 
 def units_for_city(city_id: str) -> list[str]:
     city = next(c for c in CITIES if c["id"] == city_id)
@@ -172,23 +176,45 @@ def detail(db: EmergencyStorage) -> None:
             st.rerun()
 
 def massive(db: EmergencyStorage) -> None:
-    st.subheader("Generación masiva")
-    st.caption("Simula picos operativos en las tres ciudades sin exponer detalles de infraestructura al operador.")
+    st.markdown("<p class='eyebrow'>Simulación</p><h2 class='section-title'>Generador de reportes</h2><p class='muted'>Prueba cómo responde la central durante un pico sin tocar el flujo de atención manual.</p>", unsafe_allow_html=True)
+    st.info("El generador publica reportes a Kafka; el consumidor los valida, deduplica y los incorpora a la cola.")
+    st.markdown("#### Configuración del pico")
     with st.form("batch"):
-        scenario = st.selectbox("Escenario", list(SCENARIOS))
-        count = st.number_input("Cantidad de reportes", min_value=10, max_value=50000, value=1500, step=100)
-        imperfection = st.slider("Imperfecciones controladas", 0.0, 10.0, 2.0, .5)
+        c1, c2, c3 = st.columns([1.2, 1, 1])
+        scenario = c1.selectbox("Escenario operativo", list(SCENARIOS))
+        count = c2.number_input("Cantidad de reportes", min_value=10, max_value=50000, value=1500, step=100)
+        imperfection = c3.slider("Imperfecciones", 0.0, 10.0, 2.0, .5, format="%.1f%%")
         submitted = st.form_submit_button("Generar lote", type="primary")
     if submitted:
         try:
             result = producer().publish_many(create_batch(int(count), imperfection / 100, scenario))
-            st.success(f"{result['delivered']:,} reportes enviados.")
-            st.json(result)
+            st.success(f"{result['delivered']:,} reportes enviados correctamente.")
+            a, b, c = st.columns(3)
+            a.metric("Enviados", f"{result['delivered']:,}")
+            b.metric("Velocidad", f"{result['events_per_second']:,.0f}/s")
+            c.metric("Errores", f"{result['errors']:,}")
+            with st.expander("Ver detalles técnicos"):
+                st.json(result)
         except Exception as exc: st.error(str(exc))
 
 def overview(db: EmergencyStorage) -> None:
-    st.subheader("Presión operativa por ciudad")
-    st.dataframe(pd.DataFrame(db.city_rows()), use_container_width=True, hide_index=True)
+    st.markdown("<p class='eyebrow'>Situación nacional</p><h2 class='section-title'>Resumen por ciudad</h2><p class='muted'>Compara demanda, disponibilidad y presión operativa de las tres ciudades atendidas.</p>", unsafe_allow_html=True)
+    rows = db.city_rows()
+    if not rows:
+        st.info("Todavía no hay métricas de ciudad.")
+        return
+    frame = pd.DataFrame(rows)
+    a, b, c = st.columns(3)
+    a.metric("Ciudad con más reportes nuevos", frame.loc[frame["Nuevos"].idxmax(), "Ciudad"])
+    b.metric("Reportes nuevos", f"{int(frame['Nuevos'].sum()):,}")
+    c.metric("Unidades disponibles", f"{int(frame['Disponibles'].sum()):,}")
+    chart = px.bar(frame, x="Ciudad", y=["Nuevos", "Activos"], barmode="group", labels={"value":"Reportes", "variable":"Indicador", "Ciudad":""}, color_discrete_map={"Nuevos":"#c92f3d", "Activos":"#315a8a"})
+    chart.update_layout(height=340, margin=dict(l=10,r=10,t=20,b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#ffffff", font_color="#172033", legend_title_text="")
+    st.plotly_chart(chart, use_container_width=True)
+    pressure = px.bar(frame, x="Ciudad", y=["Disponibles", "Ocupadas"], barmode="group", labels={"value":"Unidades", "variable":"Indicador", "Ciudad":""}, color_discrete_map={"Disponibles":"#2f855a", "Ocupadas":"#b54708"})
+    pressure.update_layout(height=320, margin=dict(l=10,r=10,t=20,b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#ffffff", font_color="#172033", legend_title_text="")
+    st.plotly_chart(pressure, use_container_width=True)
+    st.dataframe(frame, use_container_width=True, hide_index=True)
 
 def main() -> None:
     initialize_state()
@@ -203,12 +229,8 @@ def main() -> None:
         st.stop()
     render_header()
     metrics(db)
-    with st.sidebar:
-        st.markdown("### Navegación")
-        choice = st.radio("", ["Cola de reportes", "Resumen por ciudad", "Generación masiva"], label_visibility="collapsed")
-        if st.button("Reiniciar datos de demo"):
-            db.reset_demo_data()
-            st.rerun()
+    st.markdown("<p class='nav-caption'>Vistas de operación</p>", unsafe_allow_html=True)
+    choice = st.radio("Navegación", ["Cola de reportes", "Resumen por ciudad", "Generación masiva"], horizontal=True, label_visibility="collapsed")
     if st.session_state.page == "detail":
         detail(db)
     elif choice == "Cola de reportes":
