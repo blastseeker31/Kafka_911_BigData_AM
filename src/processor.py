@@ -13,7 +13,7 @@ def validate_event(event: dict[str, Any]) -> list[str]:
     errors = []
     missing = sorted(REQUIRED_FIELDS - event.keys())
     if missing: errors.append(f"Campos faltantes: {', '.join(missing)}")
-    if event.get("city_id") not in {city["id"] for city in CITIES}: errors.append("La ciudad debe ser Tegucigalpa, San Pedro Sula o La Ceiba")
+    if "city_id" in event and event.get("city_id") not in {city["id"] for city in CITIES}: errors.append("La ciudad debe ser Tegucigalpa, San Pedro Sula o La Ceiba")
     if not isinstance(event.get("priority"), int) or isinstance(event.get("priority"), bool) or not 1 <= event.get("priority", 0) <= 5: errors.append("La prioridad debe ser un entero entre 1 y 5")
     if not isinstance(event.get("people_at_risk"), int) or event.get("people_at_risk", 0) < 1: errors.append("Personas en riesgo debe ser un entero positivo")
     try: datetime.fromisoformat(str(event.get("occurred_at", "")).replace("Z", "+00:00"))
