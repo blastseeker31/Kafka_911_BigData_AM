@@ -1,293 +1,187 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime
-from typing import Any
-
 import pandas as pd
-import plotly.express as px
 import streamlit as st
 
 from src.config import settings
-from src.event_factory import DISTRICTS, EMERGENCY_TYPES, SCENARIOS, create_batch, create_event
+from src.event_factory import CITIES, EMERGENCY_TYPES, SCENARIOS, create_batch, create_event
 from src.kafka_io import EmergencyProducer
 from src.storage import EmergencyStorage
 
-
-st.set_page_config(page_title="Central 911", page_icon="🚨", layout="wide")
-
-st.markdown(
-    """
-    <style>
-      .stApp { background: #07111f; color: #eef4fb; }
-      [data-testid="stHeader"] { background: rgba(7,17,31,.78); }
-      [data-testid="stMetric"] { background:#101e30; border:1px solid #263c55; padding:18px; border-radius:14px; }
-      div[data-testid="stForm"] { background:#0d1928; border:1px solid #263c55; padding:20px; border-radius:16px; }
-      .hero { padding: 4px 0 18px; }
-      .hero h1 { margin:0; letter-spacing:-.04em; }
-      .eyebrow { color:#ef4444; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
-      .status-pill { display:inline-block; padding:6px 11px; border-radius:999px; background:#123252; color:#a9d4ff; }
-      .detail-card { background:#0d1928; border:1px solid #263c55; padding:18px; border-radius:14px; margin-bottom:10px; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
+st.set_page_config(page_title="Central 911 Honduras", page_icon="🚨", layout="wide", initial_sidebar_state="expanded")
+st.markdown("""
+<style>
+.stApp { background:#f6f8fb; color:#172033; } [data-testid="stHeader"] { background:#f6f8fb; }
+[data-testid="stSidebar"] { background:#fff; border-right:1px solid #e5eaf0; }
+[data-testid="stMetric"] { background:#fff; border:1px solid #e4e9ef; padding:14px 16px; border-radius:10px; }
+div[data-testid="stForm"] { background:#fff; border:1px solid #e4e9ef; padding:18px; border-radius:10px; }
+.hero { padding:0 0 8px; } .eyebrow { color:#d12f3d; font-size:.75rem; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+.priority-5 { color:#b42318; font-weight:800; } .priority-4 { color:#b54708; font-weight:800; }
+.login-wrap { max-width:440px; margin:7vh auto 0; } .login-mark { color:#d12f3d; font-size:2rem; font-weight:900; }
+.muted { color:#637083; } .section-title { margin-top:6px; margin-bottom:4px; }
+</style>
+""", unsafe_allow_html=True)
 
 @st.cache_resource
 def producer() -> EmergencyProducer:
     return EmergencyProducer()
 
-
 @st.cache_resource
 def storage() -> EmergencyStorage:
     return EmergencyStorage()
 
-
 def initialize_state() -> None:
-    defaults = {"authenticated": False, "page": "dashboard", "selected_report": None}
-    for key, value in defaults.items():
+    for key, value in {"authenticated": False, "page": "queue", "selected_report": None, "queue_page": 1}.items():
         st.session_state.setdefault(key, value)
 
-
 def login_page() -> None:
-    left, center, right = st.columns([1, 1.1, 1])
-    with center:
-        st.markdown("<div style='height:11vh'></div>", unsafe_allow_html=True)
-        st.markdown("<p class='eyebrow'>Central de operaciones</p>", unsafe_allow_html=True)
-        st.title("911 · Sirviendo al pueblo")
-        st.caption("Plataforma de gestión y monitoreo de emergencias en tiempo real")
-        with st.form("login"):
-            username = st.text_input("Usuario", placeholder="Ingrese su usuario")
-            password = st.text_input("Contraseña", type="password", placeholder="Ingrese su contraseña")
-            submitted = st.form_submit_button("Ingresar al centro de control", use_container_width=True)
-        if submitted:
-            if username == settings.app_user and password == settings.app_password:
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Credenciales incorrectas. Para la demo use Alejandro / 911.")
-
+    st.markdown("<div class='login-wrap'><div class='login-mark'>● 911 HN</div><p class='eyebrow'>Centro de despacho nacional</p><h1>Ingresar a la central</h1><p class='muted'>Registra, prioriza y despacha emergencias desde un solo lugar.</p>", unsafe_allow_html=True)
+    with st.form("login"):
+        username = st.text_input("Usuario", placeholder="Usuario de operador")
+        password = st.text_input("Contraseña", type="password", placeholder="Contraseña")
+        submitted = st.form_submit_button("Ingresar", use_container_width=True, type="primary")
+    if submitted:
+        if username == settings.app_user and password == settings.app_password:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Credenciales incorrectas. Demo: Alejandro / 911.")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 def render_header() -> None:
-    title, actions = st.columns([4, 1])
-    with title:
-        st.markdown("<div class='hero'><p class='eyebrow'>Kafka · procesamiento en tiempo real</p><h1>Central de Emergencias 911</h1></div>", unsafe_allow_html=True)
-    with actions:
+    left, right = st.columns([5, 1])
+    with left:
+        st.markdown("<p class='eyebrow'>Operación en tiempo real · Honduras</p><h1 class='hero'>Central de Emergencias 911</h1>", unsafe_allow_html=True)
+    with right:
+        st.caption(f"Operador: {settings.app_user}")
         if st.button("Cerrar sesión", use_container_width=True):
             st.session_state.authenticated = False
             st.rerun()
 
-
-@st.fragment(run_every="2s")
-def render_dashboard_metrics(db: EmergencyStorage) -> None:
+def metrics(db: EmergencyStorage) -> None:
     summary = db.summary()
-    invalid = db.dead_letter_count()
     cols = st.columns(5)
-    cols[0].metric("Emergencias activas", f"{summary['active']:,}")
-    cols[1].metric("Emergencias críticas", f"{summary['critical']:,}")
+    cols[0].metric("Reportes nuevos", f"{summary['new']:,}")
+    cols[1].metric("Críticos activos", f"{summary['critical']:,}")
     cols[2].metric("Unidades disponibles", f"{summary['units']:,}")
-    cols[3].metric("Eventos procesados", f"{summary['processed']:,}")
-    cols[4].metric("Eventos rechazados", f"{invalid:,}")
-    st.caption("Indicadores actualizados automáticamente cada 2 segundos.")
+    cols[3].metric("Unidades ocupadas", f"{summary['occupied']:,}")
+    cols[4].metric("Procesados", f"{summary['processed']:,}")
 
-
-def individual_generator() -> None:
-    st.subheader("Registrar una emergencia")
-    district_names = {item["name"]: item["id"] for item in DISTRICTS}
-    types = [item[0] for item in EMERGENCY_TYPES]
-    with st.form("individual-event", clear_on_submit=True):
-        district_name = st.selectbox("Distrito", list(district_names))
-        emergency_type = st.selectbox("Tipo de emergencia", types)
-        location = st.text_input("Ubicación", placeholder="Dirección o punto de referencia")
-        priority = st.select_slider("Prioridad", options=[1, 2, 3, 4, 5], value=3)
-        description = st.text_area("Descripción", placeholder="Describa brevemente la situación")
-        submitted = st.form_submit_button("Publicar emergencia en Kafka", use_container_width=True)
+def emergency_form() -> None:
+    st.markdown("<p class='eyebrow'>Acción rápida</p><h2 class='section-title'>Registrar emergencia</h2><p class='muted'>Los campos esenciales están aquí. Kafka procesa el reporte automáticamente.</p>", unsafe_allow_html=True)
+    city_names = {c["name"]: c["id"] for c in CITIES}
+    types = [x[0] for x in EMERGENCY_TYPES]
+    with st.form("new-report", clear_on_submit=True):
+        c1, c2 = st.columns(2)
+        city = c1.selectbox("Ciudad", list(city_names))
+        emergency_type = c2.selectbox("Tipo", types)
+        neighborhood = st.text_input("Colonia o referencia", placeholder="Ej. Kennedy, frente al hospital")
+        location = st.text_input("Ubicación exacta", placeholder="Calle, avenida, edificio o punto de referencia")
+        p1, p2 = st.columns([1, 1.7])
+        priority = p1.select_slider("Prioridad", options=[1, 2, 3, 4, 5], value=3, format_func=lambda x: {1:"1 · Baja",2:"2 · Moderada",3:"3 · Alta",4:"4 · Muy alta",5:"5 · Crítica"}[x])
+        people = p2.number_input("Personas en riesgo", min_value=1, max_value=999, value=1, step=1)
+        description = st.text_area("Descripción breve", placeholder="Qué ocurre, riesgos visibles y qué necesita el operador", height=86)
+        submitted = st.form_submit_button("Registrar y poner en cola", use_container_width=True, type="primary")
     if submitted:
-        if not location.strip() or not description.strip():
-            st.error("La ubicación y la descripción son obligatorias.")
+        if not neighborhood.strip() or not location.strip() or not description.strip():
+            st.error("Completa colonia o referencia, ubicación y descripción.")
             return
-        event = create_event(
-            district_id=district_names[district_name],
-            emergency_type=emergency_type,
-            priority=priority,
-            location=location.strip(),
-            description=description.strip(),
-        )
+        event = create_event(city_id=city_names[city], neighborhood=neighborhood.strip(), emergency_type=emergency_type, priority=priority, location=location.strip(), description=description.strip(), people_at_risk=int(people))
         try:
             result = producer().publish_many([event])
-            if result["delivered"] == 1:
-                st.success(f"{event['report_number']} publicada correctamente.")
-            else:
-                st.error("Kafka no confirmó la entrega del evento.")
-        except Exception as exc:
-            st.error(f"No se pudo publicar en Kafka: {exc}")
+            if result["delivered"] == 1: st.success(f"{event['report_number']} registrado. Ya está en la cola.")
+            else: st.error("No se confirmó el registro.")
+        except Exception as exc: st.error(f"No se pudo registrar la emergencia: {exc}")
 
-
-def batch_generator() -> None:
-    st.subheader("Simular un pico masivo")
-    st.caption("Genera eventos con distribución desigual por distrito, tipo y prioridad. También puede introducir duplicados y registros incompletos controlados.")
-    with st.form("batch-event"):
-        scenario = st.selectbox("Escenario del pico", list(SCENARIOS))
-        count = st.number_input("Cantidad de llamadas", min_value=10, max_value=50000, value=1000, step=100)
-        imperfection = st.slider("Datos imperfectos controlados", 0.0, 10.0, 2.0, 0.5)
-        submitted = st.form_submit_button("Disparar lote masivo", use_container_width=True)
-    if submitted:
-        with st.spinner(f"Publicando {count:,} llamadas en Kafka..."):
-            try:
-                events = create_batch(int(count), imperfection / 100, scenario=scenario)
-                result = producer().publish_many(events)
-                st.session_state.last_throughput = result
-            except Exception as exc:
-                st.error(f"El lote no pudo publicarse: {exc}")
-                return
-        st.success(f"Kafka confirmó {result['delivered']:,} de {result['queued']:,} eventos.")
-        a, b, c = st.columns(3)
-        a.metric("Throughput del generador", f"{result['events_per_second']:,.0f} eventos/s")
-        b.metric("Tiempo de envío", f"{result['elapsed_seconds']:.2f} s")
-        c.metric("Errores de entrega", f"{result['errors']:,}")
-
-
-def active_events(db: EmergencyStorage) -> None:
-    st.subheader("Emergencias recientes")
-    events = db.recent_events(40)
-    if not events:
-        st.info("Todavía no hay eventos procesados. Registre una emergencia o dispare un lote.")
-        return
-    options = {
-        f"{event['report_number']} · {event['emergency_type']} · {event['district_name']} · P{event['priority']}": event["report_number"]
-        for event in events
-    }
-    selected = st.selectbox("Seleccione una emergencia para abrir su expediente", list(options))
-    if st.button("Abrir detalle", use_container_width=True):
-        st.session_state.selected_report = options[selected]
-        st.session_state.page = "detail"
+def queue(db: EmergencyStorage) -> None:
+    st.markdown("<p class='eyebrow'>Despacho</p><h2 class='section-title'>Cola de reportes</h2><p class='muted'>Prioriza y abre cualquier reporte, aunque la cola tenga miles de registros.</p>", unsafe_allow_html=True)
+    f1, f2, f3, f4 = st.columns([2, 1, 1, 1])
+    search = f1.text_input("Buscar", placeholder="Número, ubicación o descripción")
+    city = f2.selectbox("Ciudad", ["Todas"] + [c["name"] for c in CITIES])
+    typ = f3.selectbox("Tipo", ["Todos"] + [x[0] for x in EMERGENCY_TYPES])
+    status = f4.selectbox("Estado", ["Todos", "Nuevo", "Despachado", "En atención", "Cerrado"])
+    g1, g2, g3 = st.columns([1, 1, 2])
+    priority = g1.selectbox("Prioridad", ["Todas", "5", "4", "3", "2", "1"])
+    sort = g2.selectbox("Ordenar", ["Más recientes", "Prioridad"])
+    page_size = g3.selectbox("Reportes por página", [25, 50, 100])
+    total_pages = max(1, (db.query_events(1, 1, search, city, typ, priority, status, sort)[1] + page_size - 1) // page_size)
+    st.session_state.queue_page = min(st.session_state.queue_page, total_pages)
+    events, total = db.query_events(st.session_state.queue_page, page_size, search, city, typ, priority, status, sort)
+    if events:
+        options = [f"{e['report_number']} · P{e['priority']} · {e['city_name']} · {e['emergency_type']}" for e in events]
+        selected = st.radio("Selecciona un reporte para atender", options, label_visibility="collapsed")
+        if st.button("Abrir expediente y despachar", type="primary"):
+            st.session_state.selected_report = selected.split(" · ")[0]
+            st.session_state.page = "detail"
+            st.rerun()
+        frame = pd.DataFrame([{"Reporte": e["report_number"], "Ciudad": e["city_name"], "Colonia / referencia": e["neighborhood"], "Tipo": e["emergency_type"], "Prioridad": f"P{e['priority']}", "Riesgo": e["people_at_risk"], "Estado": e["status"]} for e in events])
+        st.dataframe(frame, use_container_width=True, hide_index=True)
+    else: st.info("No hay reportes con estos filtros.")
+    a, b, c = st.columns([1, 1, 4])
+    if a.button("‹ Anterior", disabled=st.session_state.queue_page <= 1):
+        st.session_state.queue_page -= 1
         st.rerun()
+    b.button(f"Página {st.session_state.queue_page} de {total_pages}", disabled=True)
+    if c.button("Siguiente ›", disabled=st.session_state.queue_page >= total_pages):
+        st.session_state.queue_page += 1
+        st.rerun()
+    st.caption(f"{total:,} reportes encontrados · mostrando {len(events)}")
 
-    table = pd.DataFrame(events)
-    columns = ["report_number", "district_name", "emergency_type", "priority", "status", "location"]
-    st.dataframe(table[columns], use_container_width=True, hide_index=True)
+def units_for_city(city_id: str) -> list[str]:
+    city = next(c for c in CITIES if c["id"] == city_id)
+    return [f"{kind} {city['id']}-{n:02d}" for kind, amount in city["units"].items() for n in range(1, min(amount, 8) + 1)]
 
-
-def balance_dashboard(db: EmergencyStorage) -> None:
-    st.subheader("Balance de carga por distrito")
-    rows = db.dashboard_rows()
-    if not rows:
-        st.warning("No hay métricas disponibles.")
-        return
-    frame = pd.DataFrame(rows)
-    selected = st.selectbox("Distrito solicitado durante la defensa", frame["Distrito"].tolist())
-    current = frame[frame["Distrito"] == selected].iloc[0]
-    a, b, c, d = st.columns(4)
-    a.metric("Llamadas activas", int(current["Activas"]))
-    b.metric("Unidades disponibles", int(current["Unidades"]))
-    c.metric("Balance", int(current["Balance"]))
-    d.metric("Exposición", current["Exposición"])
-
-    chart = px.bar(
-        frame,
-        x="Distrito",
-        y=["Activas", "Unidades"],
-        barmode="group",
-        color_discrete_map={"Activas": "#ef4444", "Unidades": "#38bdf8"},
-        labels={"value": "Cantidad", "variable": "Indicador"},
-    )
-    chart.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font_color="#dbeafe",
-        legend_title_text="",
-    )
-    st.plotly_chart(chart, use_container_width=True)
-    st.dataframe(frame, use_container_width=True, hide_index=True)
-
-
-def dashboard_page(db: EmergencyStorage) -> None:
-    render_header()
-    render_dashboard_metrics(db)
-    st.divider()
-    tab_control, tab_massive, tab_balance = st.tabs(["Centro de control", "Generador masivo", "Balance por distrito"])
-    with tab_control:
-        form_col, list_col = st.columns([0.85, 1.35], gap="large")
-        with form_col:
-            individual_generator()
-        with list_col:
-            active_events(db)
-    with tab_massive:
-        batch_generator()
-        if "last_throughput" in st.session_state:
-            result = st.session_state.last_throughput
-            st.json(result)
-    with tab_balance:
-        balance_dashboard(db)
-
-    with st.expander("Herramientas de demostración"):
-        st.warning("Esta acción elimina únicamente los datos generados para la demo.")
-        if st.button("Reiniciar datos de demostración"):
-            db.reset_demo_data()
-            st.success("Datos reiniciados.")
-            time.sleep(0.5)
-            st.rerun()
-
-
-def detail_page(db: EmergencyStorage) -> None:
-    report_number = st.session_state.selected_report
-    event = db.get_event(report_number) if report_number else None
+def detail(db: EmergencyStorage) -> None:
+    event = db.get_event(st.session_state.selected_report)
     if not event:
-        st.error("La emergencia seleccionada ya no existe.")
-        if st.button("Regresar al dashboard"):
-            st.session_state.page = "dashboard"
-            st.rerun()
+        st.error("El reporte ya no existe.")
         return
-
-    top_left, top_right = st.columns([4, 1])
-    with top_left:
-        if st.button("← Dashboard"):
-            st.session_state.page = "dashboard"
-            st.rerun()
-        st.markdown("<p class='eyebrow'>Expediente operativo</p>", unsafe_allow_html=True)
-        st.title(f"Emergencia {event['report_number']}")
-    with top_right:
-        st.metric("Cola activa", db.summary()["active"])
-
-    info, action = st.columns([1.2, 0.8], gap="large")
-    with info:
-        st.subheader("Información de la llamada")
-        for label, key in [
-            ("Tipo", "emergency_type"),
-            ("Distrito", "district_name"),
-            ("Ubicación", "location"),
-            ("Prioridad", "priority"),
-            ("Descripción", "description"),
-            ("Estado", "status"),
-            ("Fecha y hora", "occurred_at"),
-        ]:
-            st.markdown(f"<div class='detail-card'><b>{label}</b><br>{event.get(key, '—')}</div>", unsafe_allow_html=True)
-
-    with action:
-        st.subheader("Despacho y seguimiento")
-        statuses = ["Recibida", "Unidad asignada", "En camino", "Resuelta"]
-        units = ["", "Ambulancia A-01", "Ambulancia A-02", "Patrulla P-01", "Patrulla P-02", "Bomberos B-01", "Rescate R-01"]
-        current_status = event.get("status", "Recibida")
-        current_unit = event.get("assigned_unit") or ""
-        with st.form("update-detail"):
-            status = st.selectbox("Estado", statuses, index=statuses.index(current_status) if current_status in statuses else 0)
-            unit = st.selectbox("Unidad asignada", units, index=units.index(current_unit) if current_unit in units else 0)
-            observation = st.text_area("Observación", value=event.get("observation", ""))
-            submitted = st.form_submit_button("Guardar seguimiento", use_container_width=True)
+    if st.button("‹ Volver a la cola"):
+        st.session_state.page = "queue"
+        st.rerun()
+    st.markdown(f"<p class='eyebrow'>Expediente operativo · {event['report_number']}</p><h1>{event['emergency_type']} <span class='priority-{event['priority']}'>P{event['priority']}</span></h1>", unsafe_allow_html=True)
+    left, right = st.columns([1.1, .9], gap="large")
+    with left:
+        st.subheader("Información del reporte")
+        st.info(f"**{event['city_name']} · {event['neighborhood']}**\n\n{event['location']}\n\n{event['description']}\n\nPersonas en riesgo: **{event['people_at_risk']}**")
+        st.caption(f"Recibido: {event['occurred_at']} · Operador: {event.get('operator', settings.app_user)}")
+        st.subheader("Historial de estados")
+        st.write(" → ".join([f"✅ {s}" if s == event["status"] else s for s in ["Nuevo", "Despachado", "En atención", "Cerrado"]]))
+    with right:
+        st.subheader("Despachar recursos")
+        statuses = ["Nuevo", "Despachado", "En atención", "Cerrado"]
+        current = event.get("status", "Nuevo")
+        city_units = units_for_city(event["city_id"])
+        with st.form("dispatch"):
+            status = st.selectbox("Estado", statuses, index=statuses.index(current) if current in statuses else 0)
+            assigned = st.multiselect("Unidades (puedes elegir varias)", city_units, default=[u for u in event.get("assigned_units", []) if u in city_units])
+            observation = st.text_area("Nota de despacho", value=event.get("observation", ""), height=100)
+            submitted = st.form_submit_button("Guardar despacho", use_container_width=True, type="primary")
         if submitted:
-            db.update_event(report_number, status, unit, observation)
-            st.success("Seguimiento actualizado.")
+            db.update_event(event["report_number"], status, assigned, observation)
+            st.success("Despacho actualizado.")
+            time.sleep(.3)
             st.rerun()
 
-        st.markdown("#### Flujo operativo")
-        current_index = statuses.index(current_status) if current_status in statuses else 0
-        for index, value in enumerate(statuses):
-            marker = "✅" if index <= current_index else "○"
-            st.write(f"{marker} {value}")
+def massive(db: EmergencyStorage) -> None:
+    st.subheader("Generación masiva")
+    st.caption("Simula picos operativos en las tres ciudades sin exponer detalles de infraestructura al operador.")
+    with st.form("batch"):
+        scenario = st.selectbox("Escenario", list(SCENARIOS))
+        count = st.number_input("Cantidad de reportes", min_value=10, max_value=50000, value=1500, step=100)
+        imperfection = st.slider("Imperfecciones controladas", 0.0, 10.0, 2.0, .5)
+        submitted = st.form_submit_button("Generar lote", type="primary")
+    if submitted:
+        try:
+            result = producer().publish_many(create_batch(int(count), imperfection / 100, scenario))
+            st.success(f"{result['delivered']:,} reportes enviados.")
+            st.json(result)
+        except Exception as exc: st.error(str(exc))
 
-    st.caption(f"Central La Ceiba · Operador: {event.get('operator', 'Alejandro')} · {datetime.now().strftime('%H:%M:%S')}")
-
+def overview(db: EmergencyStorage) -> None:
+    st.subheader("Presión operativa por ciudad")
+    st.dataframe(pd.DataFrame(db.city_rows()), use_container_width=True, hide_index=True)
 
 def main() -> None:
     initialize_state()
@@ -300,12 +194,22 @@ def main() -> None:
     except Exception as exc:
         st.error(f"MongoDB no está disponible: {exc}")
         st.stop()
-
+    render_header()
+    metrics(db)
+    with st.sidebar:
+        st.markdown("### Navegación")
+        choice = st.radio("", ["Cola de reportes", "Resumen por ciudad", "Generación masiva"], label_visibility="collapsed")
+        if st.button("Reiniciar datos de demo"):
+            db.reset_demo_data()
+            st.rerun()
     if st.session_state.page == "detail":
-        detail_page(db)
-    else:
-        dashboard_page(db)
+        detail(db)
+    elif choice == "Cola de reportes":
+        form_col, queue_col = st.columns([.8, 1.5], gap="large")
+        with form_col: emergency_form()
+        with queue_col: queue(db)
+    elif choice == "Resumen por ciudad": overview(db)
+    else: massive(db)
 
+if __name__ == "__main__": main()
 
-if __name__ == "__main__":
-    main()
